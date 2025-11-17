@@ -19,7 +19,7 @@ jobs:
       clean_changelog: ${{ steps.get_next_version.outputs.clean_changelog }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5.0.0
+        uses: actions/checkout@v5.0.1
         with:
           fetch-depth: 0
 
