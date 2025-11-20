@@ -24,7 +24,7 @@ jobs:
       success: ${{ steps.set_flag.outputs.success }}
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.release }}
 
