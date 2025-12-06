@@ -22,7 +22,7 @@ jobs:
           PYTHON_VERSION=${{ inputs.python-version }}
           echo "value=${PYTHON_VERSION:-"3.11"}" >> $GITHUB_OUTPUT
       - name: Check out repository code
-        uses: actions/checkout@v6.0.0
+        uses: actions/checkout@v6.0.1
         with:
           fetch-depth: 0
       - uses: hadolint/hadolint-action@v3.3.0
