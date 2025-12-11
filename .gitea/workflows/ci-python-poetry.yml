@@ -37,7 +37,7 @@ jobs:
           poetry config virtualenvs.create true --local
           poetry config virtualenvs.in-project true --local
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         name: Define cache for dependencies
         with:
           path: ./.venv

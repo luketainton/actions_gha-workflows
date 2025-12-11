@@ -29,7 +29,7 @@ jobs:
       - name: Update Pip
         run: pip install -U pip
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         name: Define cache for dependencies
         with:
           path: .
