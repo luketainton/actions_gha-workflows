@@ -6,11 +6,11 @@ on:
         type: string
         default: "3.11"
         description: "Version of Python to use for testing environment"
-    secrets:
-      SONAR_TOKEN:
-        required: true
-      SNYK_TOKEN:
-        required: true
+    # secrets:
+    #   SONAR_TOKEN:
+    #     required: true
+    #   SNYK_TOKEN:
+    #     required: true
 
 jobs:
   ci:
@@ -21,46 +21,56 @@ jobs:
         run: |
           PYTHON_VERSION=${{ inputs.python-version }}
           echo "value=${PYTHON_VERSION:-"3.11"}" >> $GITHUB_OUTPUT
+
       - name: Check out repository code
         uses: actions/checkout@v6.0.1
         with:
           fetch-depth: 0
+
       - uses: hadolint/hadolint-action@v3.3.0
         with:
           dockerfile: Dockerfile
           output-file: hadolint.out
           format: sonarqube
           no-fail: true
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "${{ steps.python-version.outputs.value }}"
+
       - name: Setup Poetry
         uses: abatilo/actions-poetry@v4
+
       - name: Install dependencies
         run: poetry install
+
       - name: Lint
         run: |
           poetry run pylint --fail-under=8 --recursive=yes --output-format=parseable --output=lintreport.txt .
           cat lintreport.txt
+
       - name: Unit Test
         run: |
           poetry run coverage run -m pytest -v --junitxml=testresults.xml
           poetry run coverage xml
           sed -i 's@${{ github.workspace }}@/github/workspace@g' coverage.xml
-      - name: SonarQube Cloud Scan
-        uses: SonarSource/sonarqube-scan-action@v7.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      - name: Snyk Vulnerability Scan
-        uses: snyk/actions/python-3.10@master
-        continue-on-error: true # To make sure that SARIF upload gets called
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --sarif-file-output=snyk.sarif --all-projects
-      - name: Upload result to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: snyk.sarif
+
+      # - name: SonarQube Cloud Scan
+      #   uses: SonarSource/sonarqube-scan-action@v7.0.0
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # - name: Snyk Vulnerability Scan
+      #   uses: snyk/actions/python-3.10@master
+      #   continue-on-error: true # To make sure that SARIF upload gets called
+      #   env:
+      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      #   with:
+      #     args: --sarif-file-output=snyk.sarif --all-projects
+
+      # - name: Upload result to GitHub Code Scanning
+      #   uses: github/codeql-action/upload-sarif@v4
+      #   with:
+      #     sarif_file: snyk.sarif

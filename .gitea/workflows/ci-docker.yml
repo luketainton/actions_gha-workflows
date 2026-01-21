@@ -23,15 +23,15 @@ jobs:
           format: sonarqube
           no-fail: true
 
-      - name: SonarQube Cloud Scan
-        uses: SonarSource/sonarqube-scan-action@v7.0.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # - name: SonarQube Cloud Scan
+      #   uses: SonarSource/sonarqube-scan-action@v7.0.0
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: Snyk Vulnerability Scan
-        uses: snyk/actions/python@master
-        continue-on-error: true # Sometimes vulns aren't immediately fixable
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: test --all-projects
+      # - name: Snyk Vulnerability Scan
+      #   uses: snyk/actions/python@master
+      #   continue-on-error: true # Sometimes vulns aren't immediately fixable
+      #   env:
+      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      #   with:
+      #     args: test --all-projects

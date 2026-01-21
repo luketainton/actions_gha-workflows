@@ -6,13 +6,13 @@ on:
         type: string
         default: "3.11"
         description: "Version of Python to use for testing environment"
-    secrets:
-      SONAR_HOST_URL:
-        required: false
-      SONAR_TOKEN:
-        required: true
-      SNYK_TOKEN:
-        required: true
+    # secrets:
+    #   SONAR_HOST_URL:
+    #     required: false
+    #   SONAR_TOKEN:
+    #     required: true
+    #   SNYK_TOKEN:
+    #     required: true
 
 jobs:
   ci:
@@ -62,17 +62,17 @@ jobs:
       - name: Minimize uv cache
         run: uv cache prune --ci
 
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7.0.0
-        env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      # - name: SonarQube Scan
+      #   uses: SonarSource/sonarqube-scan-action@v7.0.0
+      #   env:
+      #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: Snyk Vulnerability Scan
-        uses: snyk/actions/python@master
-        continue-on-error: true # Sometimes vulns aren't immediately fixable
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          command: snyk
-          args: test --all-projects
+      # - name: Snyk Vulnerability Scan
+      #   uses: snyk/actions/python@master
+      #   continue-on-error: true # Sometimes vulns aren't immediately fixable
+      #   env:
+      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      #   with:
+      #     command: snyk
+      #     args: test --all-projects
