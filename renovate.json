@@ -1,31 +1,35 @@
 {
-  "extends": [
-    "config:recommended"
-  ],
-  "ignorePaths": [
-    "**/.archive/**"
-  ],
-  "platformCommit": "enabled",
-  "dependencyDashboardAutoclose": true,
   "assignAutomerge": false,
   "assigneesFromCodeOwners": false,
+  "dependencyDashboardAutoclose": true,
+  "extends": ["config:recommended"],
+  "ignorePaths": ["**/.archive/**"],
+  "labels": ["type/dependencies"],
+  "platformCommit": "enabled",
   "rebaseWhen": "behind-base-branch",
   "rollbackPrs": true,
   "semanticCommits": "enabled",
   "semanticCommitScope": "deps",
   "semanticCommitType": "feat",
-  "labels": [
-    "type/dependencies"
-  ],
   "osvVulnerabilityAlerts": true,
   "dependencyDashboardOSVVulnerabilitySummary": "all",
   "vulnerabilityAlerts": {
-    "enabled": true,
-    "labels": [
-      "security",
-      "type/dependencies"
-    ],
     "commitMessagePrefix": "[SECURITY] ",
+    "enabled": true,
+    "labels": ["security", "type/dependencies"],
     "prCreation": "immediate"
-  }
+  },
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchDepTypes": ["devDependencies"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    }
+  ]
 }
