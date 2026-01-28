@@ -54,7 +54,7 @@ jobs:
           ALLSECRETS: ${{ toJSON(secrets) }}
       
       - name: "[ON HOST] Make directory if not exists"
-        uses: appleboy/ssh-action@v1.2.4
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USERNAME }}
@@ -74,7 +74,7 @@ jobs:
           target: "${{ env.project_folder }}/"
       
       - name: "[ON HOST] Deploy Stack"
-        uses: appleboy/ssh-action@v1.2.4
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USERNAME }}
