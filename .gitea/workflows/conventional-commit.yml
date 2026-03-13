@@ -12,6 +12,6 @@ jobs:
     name: Validate PR Title
     runs-on: ubuntu-latest
     steps:
-      - uses: http://${{ vars.PACKAGES_REGISTRY_URL }}/actions/conventional-commits-check-action@v1.2.3
+      - uses: http://${{ vars.PACKAGES_REGISTRY_URL }}/actions/conventional-commits-check-action@v1.3.0
         with:
           commit-message: ${{ inputs.commit_message }}
