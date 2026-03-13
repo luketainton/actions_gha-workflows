@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "[ON RUNNER] Notify Build Start"
-        uses: https://git.tainton.uk/actions/pushover-action@v1.1.4
+        uses: https://git.tainton.uk/actions/pushover-action@v1.1.5
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
             rm -rf ${{ env.project_folder }}
       
       - name: "[ON RUNNER] Notify Build End"
-        uses: https://git.tainton.uk/actions/pushover-action@v1.1.4
+        uses: https://git.tainton.uk/actions/pushover-action@v1.1.5
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
