@@ -18,6 +18,9 @@ on:
       PUSHOVER_USER_TOKEN:
         required: true
         type: string
+      PUSHOVER_APP_TOKEN:
+        required: true
+        type: string
 
 jobs:
   deploy:
