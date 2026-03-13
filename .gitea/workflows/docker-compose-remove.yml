@@ -34,7 +34,7 @@ jobs:
         with:
           message: "Removing stack ${{ gitea.repository }}"
           title: 'Stack Removal Started'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}"
+          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
 
       - name: "[ON RUNNER] Set project variables"
@@ -64,5 +64,5 @@ jobs:
         with:
           message: "Removed stack ${{ gitea.repository }}"
           title: 'Stack Removal ${{ job.status }}'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}"
+          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
