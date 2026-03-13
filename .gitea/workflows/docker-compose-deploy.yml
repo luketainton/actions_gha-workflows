@@ -34,7 +34,7 @@ jobs:
         with:
           message: "Deploying stack ${{ gitea.repository }}"
           title: 'Stack Deployment Started'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}"
+          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
 
       - name: "[ON RUNNER] Checkout the repo"
@@ -95,5 +95,5 @@ jobs:
         with:
           message: "Deployed stack ${{ gitea.repository }}"
           title: 'Stack Deployment ${{ job.status }}'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}"
+          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
