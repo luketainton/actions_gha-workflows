@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create release
-        uses: https://git.tainton.uk/actions/create-release-action@v1.1.0
+        uses: https://git.tainton.uk/actions/create-release-action@v1.1.1
         with:
           release_name: ${{ inputs.tag }}
           tag: ${{ inputs.tag }}
