@@ -38,7 +38,7 @@ jobs:
           url_title: 'View Logs'
 
       - name: "[ON RUNNER] Checkout the repo"
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       
       - name: "[ON RUNNER] Set project variables"
         run: |
