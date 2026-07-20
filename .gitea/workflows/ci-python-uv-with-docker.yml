@@ -32,7 +32,7 @@ jobs:
           no-fail: true
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "${{ vars.PYTHON_VERSION }}"
 
