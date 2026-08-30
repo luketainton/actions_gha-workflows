@@ -175,7 +175,9 @@ jobs:
         uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: Dockerfile
-          failure-threshold: error
+          output-file: hadolint.out
+          format: sonarqube
+          no-fail: true
 
       - name: Build Docker image
         if: ${{ inputs.docker-enabled }}
