@@ -3,11 +3,11 @@ name: Unified Python CI
 on:
   workflow_call:
     inputs:
-      python-versions:
-        description: JSON array of Python versions to test (for example ["3.13", "3.14"])
+      python-version:
+        description: Python version to test
         required: false
         type: string
-        default: '["3.14"]'
+        default: '3.14'
       package-manager:
         description: Dependency and command runner (pip, poetry, or uv)
         required: false
@@ -38,12 +38,8 @@ concurrency:
 
 jobs:
   ci:
-    name: Python ${{ matrix.python-version }} / ${{ inputs.package-manager }}
+    name: Unified Python CI
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ${{ fromJSON(inputs.python-versions) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
@@ -61,7 +57,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6.3.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ inputs.python-version }}
           cache: ${{ inputs.package-manager == 'pip' && 'pip' || 'false' }}
 
       - name: Set up uv
@@ -152,7 +148,7 @@ jobs:
       - name: Upload coverage report
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: test-results-${{ inputs.package-manager }}-${{ matrix.python-version }}
+          name: test-results-${{ inputs.package-manager }}-${{ inputs.python-version }}
           path: |
             coverage.xml
             test-results.xml
