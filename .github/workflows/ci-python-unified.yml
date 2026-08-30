@@ -1,0 +1,186 @@
+name: Unified Python CI
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: JSON array of Python versions to test (for example ["3.13", "3.14"])
+        required: false
+        type: string
+        default: '["3.14"]'
+      package-manager:
+        description: Dependency and command runner (pip, poetry, or uv)
+        required: false
+        type: string
+        default: uv
+      docker-enabled:
+        description: Build the repository Docker image and lint its Dockerfile
+        required: false
+        type: boolean
+        default: false
+      sonarqube:
+        description: Run the SonarQube analysis
+        required: false
+        type: boolean
+        default: false
+      security-scan:
+        description: Run pip-audit against the installed environment
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      SONAR_TOKEN:
+        required: false
+
+concurrency:
+  group: unified-python-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Python ${{ matrix.python-version }} / ${{ inputs.package-manager }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate package manager
+        shell: bash
+        run: |
+          case "${{ inputs.package-manager }}" in
+            pip|poetry|uv) ;;
+            *) echo "Unsupported package manager: ${{ inputs.package-manager }}" >&2; exit 1 ;;
+          esac
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: ${{ inputs.package-manager == 'pip' && 'pip' || 'false' }}
+
+      - name: Set up uv
+        if: ${{ inputs.package-manager == 'uv' }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Poetry
+        if: ${{ inputs.package-manager == 'poetry' }}
+        uses: abatilo/actions-poetry@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.package-manager }}" in
+            pip)
+              python -m pip install --upgrade pip
+              if [[ -f pyproject.toml ]]; then
+                python -m pip install -e ".[dev]"
+              elif [[ -f requirements.txt ]]; then
+                python -m pip install -r requirements.txt
+                [[ ! -f requirements-dev.txt ]] || python -m pip install -r requirements-dev.txt
+              fi
+              ;;
+            poetry)
+              poetry add --group dev --no-interaction ruff pytest pytest-cov coverage
+              poetry install --with dev
+              ;;
+            uv)
+              uv add --dev ruff pytest pytest-cov coverage
+              uv sync --dev
+              ;;
+            *)
+              echo "Unsupported package manager: ${{ inputs.package-manager }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Add security scanner to Poetry dev dependencies
+        if: ${{ inputs.package-manager == 'poetry' && inputs.security-scan }}
+        run: poetry add --group dev --no-interaction pip-audit
+
+      - name: Add security scanner to uv dev dependencies
+        if: ${{ inputs.package-manager == 'uv' && inputs.security-scan }}
+        run: uv add --dev pip-audit
+
+      - name: Install updated dev dependencies
+        if: ${{ inputs.security-scan && (inputs.package-manager == 'poetry' || inputs.package-manager == 'uv') }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            poetry) poetry install --with dev ;;
+            uv) uv sync --dev ;;
+          esac
+
+      - name: Ruff lint
+        run: |
+          case "${{ inputs.package-manager }}" in
+            pip) python -m ruff check . ;;
+            poetry) poetry run ruff check . ;;
+            uv) uv run ruff check . ;;
+          esac
+
+      - name: Ruff format
+        run: |
+          case "${{ inputs.package-manager }}" in
+            pip) python -m ruff format --check . ;;
+            poetry) poetry run ruff format --check . ;;
+            uv) uv run ruff format --check . ;;
+          esac
+
+      - name: Unit tests and coverage
+        run: |
+          set -euo pipefail
+          case "${{ inputs.package-manager }}" in
+            pip) python -m coverage run -m pytest -q --junitxml=test-results.xml ;;
+            poetry) poetry run coverage run -m pytest -q --junitxml=test-results.xml ;;
+            uv) uv run coverage run -m pytest -q --junitxml=test-results.xml ;;
+          esac
+          case "${{ inputs.package-manager }}" in
+            pip) python -m coverage report --fail-under=0; python -m coverage xml -o coverage.xml ;;
+            poetry) poetry run coverage report --fail-under=0; poetry run coverage xml -o coverage.xml ;;
+            uv) uv run coverage report --fail-under=0; uv run coverage xml -o coverage.xml ;;
+          esac
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.package-manager }}-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            test-results.xml
+          if-no-files-found: error
+
+      - name: Dependency audit
+        if: ${{ inputs.security-scan }}
+        run: |
+          case "${{ inputs.package-manager }}" in
+            pip) pip-audit ;;
+            poetry) poetry run pip-audit ;;
+            uv) uv run pip-audit ;;
+          esac
+
+      - name: Lint Dockerfile
+        if: ${{ inputs.docker-enabled }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+      - name: Build Docker image
+        if: ${{ inputs.docker-enabled }}
+        run: docker build --tag python-ci:local .
+
+      - name: SonarQube scan
+        if: ${{ inputs.sonarqube }}
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_HOST_URL: ${{ vars.SONAR_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
