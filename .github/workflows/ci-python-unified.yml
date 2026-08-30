@@ -46,7 +46,7 @@ jobs:
         python-version: ${{ fromJSON(inputs.python-versions) }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -59,14 +59,14 @@ jobs:
           esac
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: ${{ inputs.package-manager == 'pip' && 'pip' || 'false' }}
 
       - name: Set up uv
         if: ${{ inputs.package-manager == 'uv' }}
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
@@ -150,7 +150,7 @@ jobs:
           esac
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: test-results-${{ inputs.package-manager }}-${{ matrix.python-version }}
           path: |
@@ -169,7 +169,7 @@ jobs:
 
       - name: Lint Dockerfile
         if: ${{ inputs.docker-enabled }}
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@v3.4.0
         with:
           dockerfile: Dockerfile
           failure-threshold: error
@@ -180,7 +180,7 @@ jobs:
 
       - name: SonarQube scan
         if: ${{ inputs.sonarqube }}
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@v8.1.0
         env:
           SONAR_HOST_URL: ${{ vars.SONAR_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
