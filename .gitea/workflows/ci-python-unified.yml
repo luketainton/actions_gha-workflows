@@ -185,7 +185,7 @@ jobs:
 
       - name: SonarQube scan
         if: ${{ inputs.sonarqube }}
-        uses: SonarSource/sonarqube-scan-action@v8.1.0
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
         env:
           SONAR_HOST_URL: ${{ vars.SONAR_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
