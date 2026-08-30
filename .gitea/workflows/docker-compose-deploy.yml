@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:      
       - name: "[ON RUNNER] Notify Build Start"
-        uses: https://git.tainton.uk/actions/pushover-action@v1.1.8
+        uses: https://git.tainton.uk/actions/pushover-action@v1.2.0
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
@@ -36,6 +36,8 @@ jobs:
           title: 'Stack Deployment Started'
           url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
+          priority: normal
+          ttl: 300
 
       - name: "[ON RUNNER] Checkout the repo"
         uses: actions/checkout@v7
@@ -88,7 +90,7 @@ jobs:
             docker compose --env-file .env up --detach
       
       - name: "[ON RUNNER] Notify Build End"
-        uses: https://git.tainton.uk/actions/pushover-action@v1.1.8
+        uses: https://git.tainton.uk/actions/pushover-action@v1.2.0
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
@@ -97,3 +99,5 @@ jobs:
           title: 'Stack Deployment ${{ job.status }}'
           url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
           url_title: 'View Logs'
+          priority: normal
+          ttl: 300
