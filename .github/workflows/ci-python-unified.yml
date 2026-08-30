@@ -56,14 +56,14 @@ jobs:
 
       - name: Set up Python (pip)
         if: ${{ inputs.package-manager == 'pip' }}
-        uses: actions/setup-python@v6.3.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
 
       - name: Set up Python
         if: ${{ inputs.package-manager != 'pip' }}
-        uses: actions/setup-python@v6.3.0
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: ${{ inputs.python-version }}
 
