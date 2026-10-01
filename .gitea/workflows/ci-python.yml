@@ -21,6 +21,156 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect OpenSpec-managed PR changes
+        id: openspec-changes
+        shell: bash
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          with open(os.environ["EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+
+          pull_request = event.get("pull_request") or event.get("pull_request_target")
+          if not pull_request:
+              print("changed=false", file=open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8"))
+              sys.exit(0)
+
+          base = pull_request.get("base", {}).get("sha")
+          head = pull_request.get("head", {}).get("sha")
+          if not base or not head:
+              sys.exit("Unable to determine pull request base/head SHA for OpenSpec path detection")
+
+          result = subprocess.run(
+              ["git", "diff", "--no-renames", "--name-only", f"{base}...{head}"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          if result.returncode:
+              sys.exit(f"Unable to compare pull request commits: {result.stderr.strip()}")
+
+          managed = any(
+              (path.startswith("openspec/changes/") or path.startswith("openspec/specs/"))
+              and not path.endswith("/.gitkeep")
+              for path in result.stdout.splitlines()
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"changed={'true' if managed else 'false'}", file=output)
+          PYCODE
+
+      - name: Install OpenSpec CLI
+        if: steps.openspec-changes.outputs.changed == 'true'
+        run: npm install --global @fission-ai/openspec@1.13.2
+
+      - name: Validate OpenSpec PR changes
+        if: steps.openspec-changes.outputs.changed == 'true'
+        shell: bash
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          with open(os.environ["EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          pull_request = event.get("pull_request") or event.get("pull_request_target")
+          if not pull_request:
+              sys.exit("OpenSpec validation was requested without pull request metadata")
+
+          base = pull_request.get("base", {}).get("sha")
+          head = pull_request.get("head", {}).get("sha")
+          if not base or not head:
+              sys.exit("Unable to determine pull request base/head SHA for OpenSpec validation")
+
+          result = subprocess.run(
+              ["git", "diff", "--no-renames", "--name-only", f"{base}...{head}"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          if result.returncode:
+              sys.exit(f"Unable to compare pull request commits: {result.stderr.strip()}")
+          paths = result.stdout.splitlines()
+          active_ids = set()
+          archived_dirs = set()
+          archived_specs = {}
+          spec_ids = set()
+
+          for changed_path in paths:
+              parts = changed_path.split("/")
+              if len(parts) >= 3 and parts[0:2] == ["openspec", "changes"]:
+                  if parts[2] == "archive" and len(parts) >= 5:
+                      archived_dirs.add(parts[3])
+                      if len(parts) >= 7 and parts[4] == "specs":
+                          capability = "/".join(parts[5:-1])
+                          if capability:
+                              archived_specs.setdefault(parts[3], set()).add(capability)
+                  elif parts[2] != ".gitkeep":
+                      active_ids.add(parts[2])
+              if len(parts) >= 3 and parts[0:2] == ["openspec", "specs"] and parts[2] != ".gitkeep":
+                  spec_ids.add("/".join(parts[2:-1]) if len(parts) > 3 else parts[2])
+
+          def archived_change_id(directory):
+              return re.sub(r"^\d{4}-\d{2}-\d{2}-", "", directory)
+
+          def matches_change(change_id, directory):
+              return directory == change_id or archived_change_id(directory) == change_id
+
+          for change_id in sorted(active_ids):
+              if Path("openspec/changes", change_id).exists():
+                  sys.exit(f"OpenSpec change '{change_id}' is still active; archive it before this pull request can pass")
+              if not any(matches_change(change_id, directory) for directory in archived_dirs):
+                  sys.exit(f"OpenSpec change '{change_id}' was touched but its archived change is not included in this pull request")
+
+          for directory in sorted(archived_dirs):
+              if not Path("openspec/changes/archive", directory).is_dir():
+                  sys.exit(f"Archived OpenSpec change directory is missing: {directory}")
+
+          for spec_id in sorted(spec_ids):
+              if not any(spec_id in archived_specs.get(directory, set()) for directory in archived_dirs):
+                  sys.exit(f"OpenSpec capability '{spec_id}' changed without a matching archived delta in this pull request")
+
+          for spec_id in sorted(spec_ids):
+              subprocess.run(["openspec", "validate", spec_id, "--type", "spec", "--no-interactive"], check=True)
+          archive_result = subprocess.run(
+              ["openspec", "validate", "--archived", "--report", "findings", "--json", "--no-interactive"],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          try:
+              report = json.loads(archive_result.stdout)
+              findings_report = report.get("report", {})
+              archive_findings = report.get("itemFindings")
+              if findings_report.get("kind") != "validation-findings" or findings_report.get("scope") != "archived" or not isinstance(archive_findings, list):
+                  raise ValueError("unexpected archived validation report shape")
+              if any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in archive_findings):
+                  raise ValueError("archived validation finding has no change id")
+          except (json.JSONDecodeError, ValueError) as error:
+              sys.exit(f"Unable to read archived OpenSpec validation results: {error}")
+
+          relevant_findings = [item for item in archive_findings if item["id"] in archived_dirs]
+          if relevant_findings:
+              details = "; ".join(
+                  f"{item['id']}: {', '.join(issue.get('message', 'validation failed') for issue in item.get('issues', []))}"
+                  for item in relevant_findings
+              )
+              sys.exit(f"PR-touched archived OpenSpec changes are incomplete: {details}")
+          if archive_result.returncode and not archive_findings:
+              sys.exit(f"Archived OpenSpec validation failed without findings: {archive_result.stderr.strip() or archive_result.stdout.strip()}")
+          PYCODE
+
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
