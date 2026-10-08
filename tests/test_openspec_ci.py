@@ -186,6 +186,44 @@ class OpenSpecWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=path.relative_to(ROOT)):
                 self.assertEqual(scripts, self.reference_scripts)
 
+    def test_python_unified_ci_has_optional_pyrefly_for_each_package_manager(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci-python-unified.yml").read_text(encoding="utf-8")
+        self.assertIn("      pyrefly:\n", workflow)
+        self.assertIn("        default: false\n", workflow.split("      pyrefly:\n", 1)[1].split("    secrets:", 1)[0])
+        self.assertIn("if: ${{ inputs.package-manager == 'poetry' && inputs.pyrefly }}", workflow)
+        self.assertIn("if: ${{ inputs.package-manager == 'uv' && inputs.pyrefly }}", workflow)
+        self.assertIn("if: ${{ inputs.package-manager == 'pip' && inputs.pyrefly }}", workflow)
+        self.assertIn("python -m pip install pyrefly", workflow)
+        self.assertIn("poetry add --group dev --no-interaction pyrefly", workflow)
+        self.assertIn("uv add --dev pyrefly", workflow)
+        self.assertIn("      - name: Pyrefly type check\n        if: ${{ inputs.pyrefly }}", workflow)
+        for command in ("pyrefly check", "poetry run pyrefly check", "uv run pyrefly check"):
+            with self.subTest(command=command):
+                self.assertIn(command, workflow)
+
+    def test_pyrefly_command_failure_propagates_for_each_package_manager(self) -> None:
+        workflow = (ROOT / ".github/workflows/ci-python-unified.yml").read_text(encoding="utf-8")
+        marker = "      - name: Pyrefly type check\n"
+        step = workflow.split(marker, 1)[1]
+        script = step.split("        run: |\n", 1)[1]
+        script = textwrap.dedent(script.split("\n      - name:", 1)[0])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_bin = Path(temp_dir)
+            for manager, executable in (("pip", "pyrefly"), ("poetry", "poetry"), ("uv", "uv")):
+                with self.subTest(package_manager=manager):
+                    command = fake_bin / executable
+                    command.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+                    command.chmod(0o755)
+                    manager_script = script.replace("${{ inputs.package-manager }}", manager)
+                    result = subprocess.run(
+                        ["bash", "-e", "-o", "pipefail", "-c", manager_script],
+                        env=os.environ | {"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 23, result.stderr or result.stdout)
+
     def test_non_openspec_pr_skips_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = Path(temp_dir)
