@@ -7,6 +7,17 @@ Docker Compose configuration without starting containers.
 
 ## Requirements
 
+### Requirement: Optional validation environment file
+The workflow SHALL expose a string `env-file-content` input defaulting to empty.
+
+#### Scenario: Validation environment supplied
+- **WHEN** `env-file-content` is nonempty
+- **THEN** its literal content is written to the repository-root `.env` after checkout and before validation, replacing any existing file without printing or evaluating the content
+
+#### Scenario: Validation environment omitted
+- **WHEN** `env-file-content` is empty or omitted
+- **THEN** no environment file is created or modified
+
 ### Requirement: Reusable Compose validation
 The workflow SHALL check out the caller repository and run Compose config validation.
 It SHALL suppress rendered configuration and preserve the command's exit status.

@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      env-file-content:
+        description: Optional validation-only .env content (empty leaves existing .env unchanged)
+        required: false
+        type: string
+        default: ''
 
 jobs:
   validate:
@@ -26,6 +31,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7.0.1
+
+      - name: Create validation environment file
+        if: inputs.env-file-content != ''
+        shell: bash
+        env:
+          ENV_FILE_CONTENT: ${{ inputs.env-file-content }}
+        run: |
+          umask 077
+          printf '%s\n' "$ENV_FILE_CONTENT" > .env
 
       - name: Validate Compose manifest
         shell: bash

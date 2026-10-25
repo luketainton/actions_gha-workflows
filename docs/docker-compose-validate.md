@@ -10,6 +10,7 @@ to run `podman compose config --quiet` instead.
 | `runtime` | string | `docker` | Select `docker` or `podman`; other values fail validation. |
 | `legacy` | boolean | `false` | Use `docker-compose` instead of `docker compose`; ignored when `runtime: podman`. |
 | `manifest-file` | string | `''` | Pass a single manifest path with `-f`; empty uses Compose's normal file discovery. |
+| `env-file-content` | string | `''` | Write validation-only content to `.env` after checkout; empty leaves any existing file unchanged. |
 
 Gitea caller:
 
@@ -33,11 +34,24 @@ the legacy executable and a custom path, set `legacy: true` and, for example,
 For Podman, set `runtime: podman`. This always invokes `podman compose`, even
 when `legacy: true`.
 
+When a manifest references an untracked `.env`, provide non-sensitive validation
+values through `env-file-content`:
+
+```yaml
+      env-file-content: |
+        PROJECT_NAME=test
+```
+
+Nonempty content replaces `.env` in the checked-out repository for this job.
+For a manifest in a subdirectory, this still writes `.env` at the repository
+root; any additional referenced environment files must already be available.
+The content is written literally without shell evaluation or printing it.
+
 The runner must have the selected Compose executable installed. Podman also
 requires an installed Compose provider supporting `config --quiet`, because
 `podman compose` delegates to that provider. This workflow does not start
 containers. Normal Compose
 interpolation and referenced environment files still apply: required values
-and files must be available on the runner (for example, a checked-in `.env`
-containing non-sensitive validation values). It does not generate deployment
+and files must be available on the runner (for example, using `env-file-content`
+for non-sensitive validation values). It does not generate deployment
 environment files or automatically forward caller secrets or variables.
