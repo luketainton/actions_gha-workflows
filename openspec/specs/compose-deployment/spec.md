@@ -7,6 +7,40 @@ preserving caller-specific triggers, prerequisites, project paths and files.
 
 ## Requirements
 
+### Requirement: Pull before deployment
+Deployment SHALL always pull images after uploading the selected manifest and
+environment, before requesting approval, running pre-deployment commands, or
+starting containers. Pull failure SHALL stop deployment.
+
+#### Scenario: Standard deployment
+- **WHEN** a normal deployment reaches the uploaded manifest
+- **THEN** it runs Compose pull before any deployment approval or startup
+
+### Requirement: Optional deployment approval
+Deployment SHALL expose boolean `approval-required` defaulting to false, and
+SHALL support caller-specific approvers and approval instructions.
+
+#### Scenario: Approval required
+- **WHEN** approval-required is true
+- **THEN** deployment waits after image pull and continues only after an authorised approval; denial or timeout fails deployment
+
+#### Scenario: Approval omitted
+- **WHEN** approval-required is false or omitted
+- **THEN** deployment continues from pull to startup without requesting approval
+
+### Requirement: Preserve specialised deployment steps
+Deployment SHALL provide opt-in build and deployment-directory replacement,
+and trusted before-upload and before-deploy host scripts. Persistent data
+SHALL remain outside the replaceable deployment directory.
+
+#### Scenario: Generated application build
+- **WHEN** a caller enables directory replacement, a generation script and build
+- **THEN** replacement precedes upload and generation precedes Compose startup with build enabled
+
+#### Scenario: Dry-run of specialised deployment
+- **WHEN** dry-run is true
+- **THEN** no cleanup, image pull, approval request, custom host script or build executes
+
 ### Requirement: Caller context and deployment configuration
 The workflows SHALL resolve paths from explicit inputs or caller organisation
 variables and SHALL use only the selected SSH authentication method.

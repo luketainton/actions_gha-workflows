@@ -219,6 +219,56 @@ class DeploymentTests(unittest.TestCase):
                     )
                     self.assertIn("!inputs.dry-run", condition)
 
+    def test_image_pull_precedes_optional_approval_and_deployment(self):
+        workflow = (ROOT / ".gitea/workflows/docker-compose-deploy.yml").read_text()
+        pull = workflow.index('name: "[ON HOST] Pull images"')
+        approval = workflow.index('name: "[ON RUNNER] Wait for deployment approval"')
+        deploy = workflow.index('name: "[ON HOST] Deploy stack"')
+        self.assertLess(pull, approval)
+        self.assertLess(approval, deploy)
+        pull_step = workflow[pull:approval]
+        self.assertIn("if: ${{ !inputs.dry-run }}", pull_step)
+        self.assertNotIn("inputs.pull-images", pull_step)
+        approval_step = workflow[approval:deploy]
+        self.assertIn("inputs.approval-required && !inputs.dry-run", approval_step)
+        self.assertIn("fail-on-denial: true", approval_step)
+        self.assertIn("GITHUB_API_URL: ${{ github.api_url }}", approval_step)
+        self.assertIn("approval-required:\n", workflow)
+        self.assertIn(
+            "default: false",
+            workflow.split("approval-required:", 1)[1].split("approval-approvers:", 1)[
+                0
+            ],
+        )
+
+    def test_specialised_build_commands_and_cleanup_order(self):
+        self.env.update(
+            BUILD="true",
+            REPLACE_PROJECT_DIRECTORY="true",
+            BEFORE_UPLOAD="mkdir -p -- ./alloy",
+            BEFORE_DEPLOY="./util/generate_index.sh",
+        )
+        result = self.resolve()
+        prepare = result["prepare_script"]
+        self.assertLess(prepare.index("rm -rf"), prepare.index("mkdir -p"))
+        self.assertTrue(prepare.endswith("mkdir -p -- ./alloy"))
+        deploy = result["deploy_script"]
+        self.assertLess(
+            deploy.index("./util/generate_index.sh"),
+            deploy.index("compose --env-file .env up"),
+        )
+        self.assertIn("up --detach --build --force-recreate --remove-orphans", deploy)
+        self.assertTrue(result["pull_script"].endswith("docker compose pull"))
+
+    def test_id_shutdown_before_recreated_start(self):
+        self.env.update(BEFORE_DEPLOY="docker compose down", REMOVE_ORPHANS="false")
+        script = self.resolve()["deploy_script"]
+        self.assertLess(
+            script.index("docker compose down"),
+            script.index("up --detach --force-recreate"),
+        )
+        self.assertNotIn("--remove-orphans", script)
+
 
 if __name__ == "__main__":
     unittest.main()

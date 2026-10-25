@@ -41,6 +41,36 @@ on:
         description: Create the persistent data directory on the host
         type: boolean
         default: false
+      approval-required:
+        description: Require manual approval after pulling images and before deploying
+        type: boolean
+        default: false
+      approval-approvers:
+        description: Comma-separated users allowed to approve deployment
+        type: string
+        default: luke
+      approval-title:
+        type: string
+        default: Deploying Compose stack
+      approval-body:
+        type: string
+        default: Please approve or deny this deployment.
+      build:
+        description: Build images when applying the deployment
+        type: boolean
+        default: false
+      replace-project-directory:
+        description: Delete the validated deployment directory before uploading (persistent data remains outside it)
+        type: boolean
+        default: false
+      before-upload:
+        description: Optional trusted host shell script run inside the deployment directory before SCP
+        type: string
+        default: ''
+      before-deploy:
+        description: Optional trusted host shell script run inside the deployment directory before Compose up
+        type: string
+        default: ''
     secrets:
       DEPLOY_HOST:
         required: true
@@ -75,6 +105,10 @@ jobs:
           SSH_AUTH: ${{ inputs.ssh-auth }}
           SSH_CREDENTIAL: ${{ inputs.ssh-auth == 'key' && secrets.DEPLOY_SSHKEY || inputs.ssh-auth == 'password' && secrets.DEPLOY_PASSWORD || '' }}
           CREATE_DATA_DIRECTORY: ${{ inputs.create-data-directory }}
+          BUILD: ${{ inputs.build }}
+          REPLACE_PROJECT_DIRECTORY: ${{ inputs.replace-project-directory }}
+          BEFORE_UPLOAD: ${{ inputs.before-upload }}
+          BEFORE_DEPLOY: ${{ inputs.before-deploy }}
           FORCE_RECREATE: ${{ inputs.force-recreate }}
           REMOVE_ORPHANS: ${{ inputs.remove-orphans }}
         run: |
@@ -113,12 +147,23 @@ jobs:
               raise SystemExit('docker-executable must be one executable name or path')
           q = shlex.quote
           compose = q(docker) + ' compose --env-file .env'
-          prepare = 'set -eu\nmkdir -p -- ' + q(folder)
+          prepare = 'set -eu'
+          if os.environ.get('REPLACE_PROJECT_DIRECTORY') == 'true':
+              prepare += '\nrm -rf -- ' + q(folder)
+          prepare += '\nmkdir -p -- ' + q(folder)
           if os.environ['CREATE_DATA_DIRECTORY'] == 'true':
               if not data:
                   raise SystemExit('Creating the data directory requires data-directory or an organisation data root')
               prepare += '\nmkdir -p -- ' + q(data)
-          deploy = 'set -eu\ncd -- ' + q(folder) + '\n' + compose + ' up --detach'
+          if os.environ.get('BEFORE_UPLOAD'):
+              prepare += '\ncd -- ' + q(folder) + '\n' + os.environ['BEFORE_UPLOAD']
+          deploy = 'set -eu\ncd -- ' + q(folder)
+          if os.environ.get('BEFORE_DEPLOY'):
+              deploy += '\n' + os.environ['BEFORE_DEPLOY']
+          deploy += '\n' + compose + ' up --detach'
+          if os.environ.get('BUILD') == 'true':
+              deploy += ' --build'
+          pull = 'set -eu\ncd -- ' + q(folder) + '\n' + q(docker) + ' compose pull'
           if os.environ['FORCE_RECREATE'] == 'true':
               deploy += ' --force-recreate'
           if os.environ['REMOVE_ORPHANS'] == 'true':
@@ -127,8 +172,10 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for key, value in {'project_name': name, 'project_folder': folder, 'data_folder': data}.items():
                   print(key + '=' + value, file=output)
-              for key, value in {'prepare_script': prepare, 'deploy_script': deploy, 'remove_script': remove}.items():
-                  print(key + '<<COMPOSE_SCRIPT\n' + value + '\nCOMPOSE_SCRIPT', file=output)
+              for key, value in {'prepare_script': prepare, 'pull_script': pull, 'deploy_script': deploy, 'remove_script': remove}.items():
+                  import uuid
+                  delimiter = 'COMPOSE_SCRIPT_' + uuid.uuid4().hex
+                  print(key + '<<' + delimiter + '\n' + value + '\n' + delimiter, file=output)
           PYCODE
 
       - name: "[ON RUNNER] Notify deployment start"
@@ -179,7 +226,6 @@ jobs:
         if: inputs.dry-run
         shell: bash
         env:
-          DOCKER_EXECUTABLE: ${{ inputs.docker-executable }}
           SOURCE_FILES: ${{ inputs.source-files }}
         run: |
           python3 - <<'PYCODE'
@@ -189,7 +235,7 @@ jobs:
               if not glob.glob(pattern):
                   raise SystemExit('Deployment source does not exist: ' + pattern)
           PYCODE
-          "$DOCKER_EXECUTABLE" compose --env-file .env config --quiet
+          docker compose --env-file .env config --quiet
 
       - name: "[ON HOST] Create deployment directories"
         uses: appleboy/ssh-action@v1.2.5
@@ -213,6 +259,34 @@ jobs:
           password: ${{ inputs.ssh-auth == 'password' && secrets.DEPLOY_PASSWORD || '' }}
           source: ${{ inputs.source-files }}
           target: ${{ steps.project.outputs.project_folder }}/
+
+      - name: "[ON HOST] Pull images"
+        uses: appleboy/ssh-action@v1.2.5
+        if: ${{ !inputs.dry-run }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USERNAME }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          key: ${{ inputs.ssh-auth == 'key' && secrets.DEPLOY_SSHKEY || '' }}
+          password: ${{ inputs.ssh-auth == 'password' && secrets.DEPLOY_PASSWORD || '' }}
+          script: ${{ steps.project.outputs.pull_script }}
+
+      - name: "[ON RUNNER] Wait for deployment approval"
+        if: ${{ inputs.approval-required && !inputs.dry-run }}
+        timeout-minutes: 60
+        uses: trstringer/manual-approval@v1.13.1
+        env:
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        with:
+          secret: ${{ github.token }}
+          approvers: ${{ inputs.approval-approvers }}
+          minimum-approvals: 1
+          issue-title: ${{ inputs.approval-title }}
+          issue-body: ${{ inputs.approval-body }}
+          exclude-workflow-initiator-as-approver: false
+          fail-on-denial: true
+          polling-interval-seconds: 5
 
       - name: "[ON HOST] Deploy stack"
         uses: appleboy/ssh-action@v1.2.5
