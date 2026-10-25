@@ -1,16 +1,14 @@
-name: Python + Docker CI
+name: Python w/ Poetry CI
 on:
   workflow_call:
     inputs:
       python-version:
         type: string
-        default: "3.11"
+        default: "3.15"
         description: "Version of Python to use for testing environment"
-    # secrets:
-    #   SONAR_TOKEN:
-    #     required: true
-    #   SNYK_TOKEN:
-    #     required: true
+
+env:
+  PATH: ${{ env.PATH }}:/root/.poetry/bin
 
 jobs:
   ci:
@@ -171,51 +169,34 @@ jobs:
               sys.exit(f"Archived OpenSpec validation failed without findings: {archive_result.stderr.strip() or archive_result.stdout.strip()}")
           PYCODE
 
-      - uses: hadolint/hadolint-action@v3.5.0
-        with:
-          dockerfile: Dockerfile
-          output-file: hadolint.out
-          format: sonarqube
-          no-fail: true
-
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
           python-version: "${{ inputs.python-version }}"
 
-      - name: Update Pip
-        run: pip install -U pip
+      - name: Setup Poetry
+        uses: abatilo/actions-poetry@v4
+
+      - name: Setup virtual environment
+        run: |
+          poetry config virtualenvs.create true --local
+          poetry config virtualenvs.in-project true --local
 
       - uses: actions/cache@v6
         name: Define cache for dependencies
         with:
-          path: .
-          key: venv-${{ hashFiles('requirements**.txt') }}
-          restore-keys: venv-${{ hashFiles('requirements**.txt') }}
+          path: ./.venv
+          key: venv-${{ hashFiles('poetry.lock') }}
+          restore-keys: venv-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+        run: poetry install
 
       - name: Lint
-        run: pylint --fail-under=8 --recursive=yes --output-format=parseable --output=lintreport.txt .
+        run: poetry run pylint --fail-under=8 --recursive=yes --output-format=parseable --output=lintreport.txt .
 
       - name: Unit Test
         run: |
-          coverage run -m pytest -v --junitxml=testresults.xml
-          coverage xml
+          poetry run coverage run -m pytest -v --junitxml=testresults.xml
+          poetry run coverage xml
           sed -i 's@${{ github.workspace }}@/github/workspace@g' coverage.xml
-
-      # - name: SonarQube Cloud Scan
-      #   uses: SonarSource/sonarqube-scan-action@v7.0.0
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      # - name: Snyk Vulnerability Scan
-      #   uses: snyk/actions/python@master
-      #   continue-on-error: true # Sometimes vulns aren't immediately fixable
-      #   env:
-      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      #   with:
-      #     args: test --all-projects

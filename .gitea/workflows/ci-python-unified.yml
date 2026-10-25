@@ -7,7 +7,7 @@ on:
         description: Python version to test
         required: false
         type: string
-        default: '3.14'
+        default: '3.15'
       package-manager:
         description: Dependency and command runner (pip, poetry, or uv)
         required: false
@@ -18,19 +18,11 @@ on:
         required: false
         type: boolean
         default: false
-      sonarqube:
-        description: Run the SonarQube analysis
-        required: false
-        type: boolean
-        default: false
       security-scan:
         description: Run pip-audit against the installed environment
         required: false
         type: boolean
         default: false
-    secrets:
-      SONAR_TOKEN:
-        required: false
 
 concurrency:
   group: unified-python-ci-${{ github.workflow }}-${{ github.ref }}
@@ -332,10 +324,3 @@ jobs:
       - name: Build Docker image
         if: ${{ inputs.docker-enabled }}
         run: docker build --tag python-ci:local .
-
-      - name: SonarQube scan
-        if: ${{ inputs.sonarqube }}
-        uses: SonarSource/sonarqube-scan-action@v8.3.0
-        env:
-          SONAR_HOST_URL: ${{ vars.SONAR_URL }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
