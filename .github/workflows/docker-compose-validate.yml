@@ -1,0 +1,55 @@
+name: Validate Docker Compose
+
+on:
+  workflow_call:
+    inputs:
+      runtime:
+        description: Container runtime (docker or podman)
+        required: false
+        type: string
+        default: docker
+      legacy:
+        description: Use docker-compose instead of docker compose (ignored for podman)
+        required: false
+        type: boolean
+        default: false
+      manifest-file:
+        description: Compose manifest path (empty uses Compose file discovery)
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  validate:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Validate Compose manifest
+        shell: bash
+        env:
+          RUNTIME: ${{ inputs.runtime }}
+          LEGACY: ${{ inputs.legacy }}
+          MANIFEST_FILE: ${{ inputs.manifest-file }}
+        run: |
+          case "$RUNTIME" in
+            docker)
+              command=(docker compose)
+              if [[ "$LEGACY" == "true" ]]; then
+                command=(docker-compose)
+              fi
+              ;;
+            podman)
+              command=(podman compose)
+              ;;
+            *)
+              echo "Unsupported runtime: $RUNTIME (expected docker or podman)" >&2
+              exit 1
+              ;;
+          esac
+          if [[ -n "$MANIFEST_FILE" ]]; then
+            command+=(-f "$MANIFEST_FILE")
+          fi
+          "${command[@]}" config --quiet
