@@ -2,71 +2,156 @@ name: Docker Compose Remove Stack
 
 on:
   workflow_call:
+    inputs:
+      dry-run:
+        description: Prepare configuration and commands without SSH, SCP, notifications, or stack changes
+        type: boolean
+        default: false
+      project-directory:
+        description: Absolute deployment directory ending in the repository name (empty uses organisation root or /home/user/repo)
+        type: string
+        default: ''
+      data-directory:
+        description: Absolute persistent data directory (empty uses organisation data root)
+        type: string
+        default: ''
+      docker-executable:
+        description: Docker executable name or absolute path on the target host
+        type: string
+        default: docker
+      ssh-auth:
+        description: SSH authentication method (key or password)
+        type: string
+        default: key
+      notifications:
+        description: Send Pushover start and completion notifications
+        type: boolean
+        default: true
     secrets:
       DEPLOY_HOST:
         required: true
-        type: string
       DEPLOY_USERNAME:
         required: true
-        type: string
-      DEPLOY_SSHKEY:
-        required: true
-        type: string
       DEPLOY_PORT:
         required: true
-        type: string
+      DEPLOY_SSHKEY:
+        required: false
+      DEPLOY_PASSWORD:
+        required: false
       PUSHOVER_USER_TOKEN:
-        required: true
-        type: string
+        required: false
       PUSHOVER_APP_TOKEN:
-        required: true
-        type: string
+        required: false
 
 jobs:
-  deploy:
+  remove:
     runs-on: ubuntu-latest
     steps:
-      - name: "[ON RUNNER] Notify Build Start"
+      - name: "[ON RUNNER] Resolve project paths and commands"
+        id: project
+        shell: bash
+        env:
+          PROJECT_NAME: ${{ github.event.repository.name }}
+          PROJECT_DIRECTORY: ${{ inputs.project-directory }}
+          PROJECT_ROOT: ${{ vars.ACTIVE_PROJECT_DIR }}
+          DATA_DIRECTORY: ${{ inputs.data-directory }}
+          DATA_ROOT: ${{ vars.ACTIVE_PROJECT_DATA_DIR || vars.PROJECT_DATA_DIR }}
+          DEPLOY_USERNAME: ${{ secrets.DEPLOY_USERNAME }}
+          DOCKER_EXECUTABLE: ${{ inputs.docker-executable }}
+          SSH_AUTH: ${{ inputs.ssh-auth }}
+          SSH_CREDENTIAL: ${{ inputs.ssh-auth == 'key' && secrets.DEPLOY_SSHKEY || inputs.ssh-auth == 'password' && secrets.DEPLOY_PASSWORD || '' }}
+          CREATE_DATA_DIRECTORY: 'false'
+          FORCE_RECREATE: 'false'
+          REMOVE_ORPHANS: 'false'
+        run: |
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import PurePosixPath
+          import re
+          import shlex
+
+          name = os.environ['PROJECT_NAME']
+          folder = os.environ['PROJECT_DIRECTORY'] or (
+              os.environ['PROJECT_ROOT'].rstrip('/') + '/' + name
+              if os.environ['PROJECT_ROOT'] else '/home/' + os.environ['DEPLOY_USERNAME'] + '/' + name
+          )
+          data = os.environ['DATA_DIRECTORY'] or (
+              os.environ['DATA_ROOT'].rstrip('/') + '/' + name if os.environ['DATA_ROOT'] else ''
+          )
+          def validate_path(value):
+              path = PurePosixPath(value)
+              if not path.is_absolute() or '..' in path.parts or len(path.parts) < 3 or any(c in value for c in '\r\n\x00'):
+                  raise SystemExit('Project paths must be absolute, below a parent directory, and contain no traversal or newlines')
+              return str(path)
+          folder = validate_path(folder)
+          if PurePosixPath(folder).name != name:
+              raise SystemExit('Project directory must end with the calling repository name')
+          if data:
+              data = validate_path(data)
+              if data == folder or PurePosixPath(folder) in PurePosixPath(data).parents:
+                  raise SystemExit('Persistent data must be outside the deployment directory')
+          if os.environ['SSH_AUTH'] not in ('key', 'password'):
+              raise SystemExit('ssh-auth must be key or password')
+          if not os.environ['SSH_CREDENTIAL']:
+              raise SystemExit('The selected SSH credential is missing')
+          docker = os.environ['DOCKER_EXECUTABLE']
+          if not re.fullmatch(r'[A-Za-z0-9_./+-]+', docker):
+              raise SystemExit('docker-executable must be one executable name or path')
+          q = shlex.quote
+          compose = q(docker) + ' compose --env-file .env'
+          prepare = 'set -eu\nmkdir -p -- ' + q(folder)
+          if os.environ['CREATE_DATA_DIRECTORY'] == 'true':
+              if not data:
+                  raise SystemExit('Creating the data directory requires data-directory or an organisation data root')
+              prepare += '\nmkdir -p -- ' + q(data)
+          deploy = 'set -eu\ncd -- ' + q(folder) + '\n' + compose + ' up --detach'
+          if os.environ['FORCE_RECREATE'] == 'true':
+              deploy += ' --force-recreate'
+          if os.environ['REMOVE_ORPHANS'] == 'true':
+              deploy += ' --remove-orphans'
+          remove = 'set -eu\ncd -- ' + q(folder) + '\n' + compose + ' down\ncd /\nrm -rf -- ' + q(folder)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, value in {'project_name': name, 'project_folder': folder, 'data_folder': data}.items():
+                  print(key + '=' + value, file=output)
+              for key, value in {'prepare_script': prepare, 'deploy_script': deploy, 'remove_script': remove}.items():
+                  print(key + '<<COMPOSE_SCRIPT\n' + value + '\nCOMPOSE_SCRIPT', file=output)
+          PYCODE
+
+      - name: "[ON RUNNER] Notify removal start"
+        if: inputs.notifications && !inputs.dry-run
         uses: https://git.tainton.uk/actions/pushover-action@v1.3.0
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
         with:
-          message: "Removing stack ${{ gitea.repository }}"
           title: 'Stack Removal Started'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
-          url_title: 'View Logs'
+          message: 'Stack removal: ${{ github.repository }}'
+          url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}'
+          url_title: View Logs
           priority: normal
           ttl: 300
 
-      - name: "[ON RUNNER] Set project variables"
-        run: |
-          projectname="${{ gitea.event.repository.name }}"
-          echo "project_name=$projectname" >> $GITEA_ENV
-          echo "project_folder=/home/${{ secrets.DEPLOY_USERNAME }}/$projectname" >> $GITEA_ENV
-
-      - name: "[ON HOST] Remove Stack"
+      - name: "[ON HOST] Remove stack and deployment directory"
         uses: appleboy/ssh-action@v1.2.5
+        if: ${{ !inputs.dry-run }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USERNAME }}
-          key: ${{ secrets.DEPLOY_SSHKEY }}
           port: ${{ secrets.DEPLOY_PORT }}
-          script: |
-            cd ${{ env.project_folder }}
-            docker compose --env-file .env down
-            cd ..
-            rm -rf ${{ env.project_folder }}
-      
-      - name: "[ON RUNNER] Notify Build End"
+          key: ${{ inputs.ssh-auth == 'key' && secrets.DEPLOY_SSHKEY || '' }}
+          password: ${{ inputs.ssh-auth == 'password' && secrets.DEPLOY_PASSWORD || '' }}
+          script: ${{ steps.project.outputs.remove_script }}
+
+      - name: "[ON RUNNER] Notify removal completion"
+        if: always() && inputs.notifications && !inputs.dry-run
         uses: https://git.tainton.uk/actions/pushover-action@v1.3.0
         env:
           PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
           PUSHOVER_USER_TOKEN: ${{ secrets.PUSHOVER_USER_TOKEN }}
         with:
-          message: "Removed stack ${{ gitea.repository }}"
           title: 'Stack Removal ${{ job.status }}'
-          url: "${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_number }}"
-          url_title: 'View Logs'
+          message: 'Stack removal: ${{ github.repository }}'
+          url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}'
+          url_title: View Logs
           priority: normal
           ttl: 300
