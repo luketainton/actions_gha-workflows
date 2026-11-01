@@ -17,11 +17,10 @@ COMPOSE = (
 
 def run_python(script, env, cwd):
     workflow = (ROOT / ".gitea/workflows/docker-compose-deploy.yml").read_text()
-    step = (
-        "Resolve project paths and commands"
-        if script == "resolve.py"
-        else "Create Compose environment file"
-    )
+    step = {
+        "resolve.py": "Resolve project paths and commands",
+        "references.py": "Prepare 1Password references",
+    }.get(script, "Create Compose environment file")
     block = workflow.split('      - name: "[ON RUNNER] ' + step + '"', 1)[1]
     source = block.split("python3 - <<'PYCODE'\n", 1)[1].split("          PYCODE", 1)[0]
     path = Path(cwd) / script
@@ -218,6 +217,73 @@ class DeploymentTests(unittest.TestCase):
                         if line.strip().startswith("if:")
                     )
                     self.assertIn("!inputs.dry-run", condition)
+
+    def test_onepassword_reference_selection_and_token_validation(self):
+        env = {
+            "ALLVARS": json.dumps({
+                "DC_PASSWORD": "op://vault/item/password",
+                "DC_OVERRIDDEN": "op://vault/unused/password",
+                "UNRELATED": "op://vault/ignored/password",
+            }),
+            "ALLSECRETS": json.dumps({
+                "DC_OVERRIDDEN": "literal",
+                "DC_SECRET": "op://vault/secret/password",
+            }),
+            "SERVICE_ACCOUNT_TOKEN": "dummy-token",
+            "GITHUB_OUTPUT": str(self.out),
+        }
+        result = run_python("references.py", env, self.cwd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(json.loads(outputs(self.out)["references"]), {
+            "DC_PASSWORD": "op://vault/item/password",
+            "DC_SECRET": "op://vault/secret/password",
+        })
+        env.update(ALLVARS="{}", ALLSECRETS="{}")
+        result = run_python("references.py", env, self.cwd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs(self.out)["references"], "{}")
+        env["SERVICE_ACCOUNT_TOKEN"] = ""
+        result = run_python("references.py", env, self.cwd)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("token secret is missing", result.stderr)
+
+    def test_onepassword_values_preserve_literals_and_disabled_behavior(self):
+        reference = "op://vault/item/password"
+        value = "quote'\" slash\\ newline\n$HOME ${missing} $$ unicode café"
+        env = {
+            "ALLVARS": json.dumps({"DC_PASSWORD": reference, "DC_PLAIN": "literal"}),
+            "ALLSECRETS": "{}",
+            "ONEPASSWORD_ENABLED": "true",
+            "DC_PASSWORD": value,
+            "DC_PLAIN": "must-not-override",
+            "OP_SERVICE_ACCOUNT_TOKEN": "must-not-upload",
+            "PROJECT_NAME": "test",
+            "PROJECT_FOLDER": "/home/deploy/test",
+            "PROJECT_DATA_FOLDER": "/docker/test",
+        }
+        for enabled, expected in (("true", value), ("false", reference)):
+            with self.subTest(enabled=enabled):
+                env["ONEPASSWORD_ENABLED"] = enabled
+                result = run_python("dotenv.py", env, self.cwd)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+                content = (self.cwd / ".env").read_text()
+                values = {key: json.loads(encoded).replace("$$", "$")
+                          for key, encoded in (line.split("=", 1) for line in content.splitlines())}
+                self.assertEqual(values["DC_PASSWORD"], expected)
+                self.assertEqual(values["DC_PLAIN"], "literal")
+                self.assertNotIn("OP_SERVICE_ACCOUNT_TOKEN", values)
+                self.assertEqual((self.cwd / ".env").stat().st_mode & 0o777, 0o600)
+        env["ONEPASSWORD_ENABLED"] = "true"
+        for unresolved in (None, reference):
+            if unresolved is None:
+                env.pop("DC_PASSWORD", None)
+            else:
+                env["DC_PASSWORD"] = unresolved
+            result = run_python("dotenv.py", env, self.cwd)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("did not resolve Compose variable: DC_PASSWORD", result.stderr)
 
     def test_image_pull_precedes_optional_approval_and_deployment(self):
         workflow = (ROOT / ".gitea/workflows/docker-compose-deploy.yml").read_text()

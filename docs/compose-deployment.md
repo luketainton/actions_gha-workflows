@@ -12,6 +12,8 @@ configuration. The deployment `.env` contains only `DC_*` values and the three
 
 | Input | Default | Meaning |
 | --- | --- | --- |
+| `onepassword-enabled` (deploy) | `false` | Resolve `op://` references in `DC_*` variables/secrets using 1Password before generating `.env`. |
+| `onepassword-token-secret` (deploy) | `ONEPASSWORD_SERVICE_ACCOUNT_TOKEN` | Name of the inherited secret holding the service account token. |
 | `project-directory` | empty | Full deployment path; otherwise `ACTIVE_PROJECT_DIR/<repo>` or `/home/<DEPLOY_USERNAME>/<repo>`. |
 | `data-directory` | empty | Full data path; otherwise `ACTIVE_PROJECT_DATA_DIR/<repo>` or `PROJECT_DATA_DIR/<repo>`. |
 | `docker-executable` | `docker` | One Docker executable name/path on the remote host. NAS callers can use `/usr/local/bin/docker`. |
@@ -76,6 +78,44 @@ workflows in `approval-body`. Yaqcp uses `replace-project-directory`,
 scripts are trusted deployment configuration: they execute only on normal
 deployment, never during dry-run. No explicit directory inputs are needed when
 the organisation defaults already describe the existing paths.
+
+## Optional 1Password secrets
+
+Set a caller repository/organisation variable such as
+`DC_DATABASE_PASSWORD` to `op://deployment-vault/database/password`, then enable
+loading in the caller:
+
+```yaml
+jobs:
+  deploy:
+    uses: actions/gha-workflows/.gitea/workflows/docker-compose-deploy.yml@main
+    with:
+      onepassword-enabled: true
+      # Optional: select another inherited token secret by name.
+      # onepassword-token-secret: CUSTOM_ONEPASSWORD_TOKEN
+    secrets: inherit
+```
+
+By default, authentication uses `secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN`.
+The token must grant read access to the referenced vaults. With `secrets: inherit`,
+the override selects any inherited secret; callers passing secrets explicitly
+can instead map their token to `ONEPASSWORD_SERVICE_ACCOUNT_TOKEN`.
+
+The workflow uses `1password/load-secrets-action/configure@v5.0.1` and
+`1password/load-secrets-action@v5.0.1` from GitHub. These actions require a runner
+that supports Node.js 24. See the
+[1Password action documentation](https://www.1password.dev/ci-cd/github-actions).
+Secrets still override same-name variables before references are selected.
+Only effective `DC_*` values beginning with `op://` are resolved; ordinary values
+are preserved. Loaded values are masked by the action and written to the private
+`.env` using the existing literal-value escaping. The service account token is
+available to subsequent job steps, but is not included in the deployed `.env`.
+
+When enabled, missing authentication or failed secret retrieval stops deployment
+before upload. With no references, both 1Password actions are skipped. Dry-run
+also retrieves secrets when enabled so local Compose validation uses the resolved
+values; it still performs no host operations. With loading disabled, `op://`
+values remain literal and no 1Password action runs.
 
 Run `python3 -m unittest discover -s tests -p test_compose_deployment.py` to check
 path resolution, flags, literal environment values, dry-run gates, and removal

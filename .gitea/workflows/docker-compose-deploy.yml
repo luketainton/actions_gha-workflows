@@ -3,6 +3,14 @@ name: Docker Compose Deploy Stack
 on:
   workflow_call:
     inputs:
+      onepassword-enabled:
+        description: Resolve op:// references in DC_* variables and secrets before generating .env
+        type: boolean
+        default: false
+      onepassword-token-secret:
+        description: Name of the inherited secret containing the 1Password service account token
+        type: string
+        default: ONEPASSWORD_SERVICE_ACCOUNT_TOKEN
       dry-run:
         description: Prepare configuration and commands without SSH, SCP, notifications, or stack changes
         type: boolean
@@ -72,6 +80,8 @@ on:
         type: string
         default: ''
     secrets:
+      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN:
+        required: false
       DEPLOY_HOST:
         required: true
       DEPLOY_USERNAME:
@@ -195,11 +205,48 @@ jobs:
       - name: "[ON RUNNER] Check out repository"
         uses: actions/checkout@v7
 
+      - name: "[ON RUNNER] Prepare 1Password references"
+        id: onepassword
+        if: inputs.onepassword-enabled
+        shell: bash
+        env:
+          ALLVARS: ${{ toJSON(vars) }}
+          ALLSECRETS: ${{ toJSON(secrets) }}
+          SERVICE_ACCOUNT_TOKEN: ${{ secrets[inputs.onepassword-token-secret] }}
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import os
+
+          if not os.environ['SERVICE_ACCOUNT_TOKEN']:
+              raise SystemExit('1Password is enabled but the selected service account token secret is missing')
+          values = {}
+          for source in ('ALLVARS', 'ALLSECRETS'):
+              values.update({key: str(value) for key, value in json.loads(os.environ[source]).items() if key.startswith('DC_')})
+          references = {key: value for key, value in values.items() if value.startswith('op://')}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('references=' + json.dumps(references), file=output)
+          PYCODE
+
+      - name: "[ON RUNNER] Configure 1Password"
+        if: inputs.onepassword-enabled && steps.onepassword.outputs.references != '{}'
+        uses: https://github.com/1password/load-secrets-action/configure@v5.0.1
+        with:
+          service-account-token: ${{ secrets[inputs.onepassword-token-secret] }}
+
+      - name: "[ON RUNNER] Load Compose secrets from 1Password"
+        if: inputs.onepassword-enabled && steps.onepassword.outputs.references != '{}'
+        uses: https://github.com/1password/load-secrets-action@v5.0.1
+        with:
+          export-env: true
+        env: ${{ fromJSON(steps.onepassword.outputs.references) }}
+
       - name: "[ON RUNNER] Create Compose environment file"
         shell: bash
         env:
           ALLVARS: ${{ toJSON(vars) }}
           ALLSECRETS: ${{ toJSON(secrets) }}
+          ONEPASSWORD_ENABLED: ${{ inputs.onepassword-enabled }}
           PROJECT_NAME: ${{ steps.project.outputs.project_name }}
           PROJECT_FOLDER: ${{ steps.project.outputs.project_folder }}
           PROJECT_DATA_FOLDER: ${{ steps.project.outputs.data_folder }}
@@ -211,6 +258,12 @@ jobs:
           values = {}
           for source in ('ALLVARS', 'ALLSECRETS'):
               values.update({key: str(value) for key, value in json.loads(os.environ[source]).items() if key.startswith('DC_')})
+          if os.environ.get('ONEPASSWORD_ENABLED') == 'true':
+              for key, value in values.items():
+                  if value.startswith('op://'):
+                      if key not in os.environ or os.environ[key] == value:
+                          raise SystemExit('1Password did not resolve Compose variable: ' + key)
+                      values[key] = os.environ[key]
           values.update({key: os.environ[key] for key in ('PROJECT_NAME', 'PROJECT_FOLDER', 'PROJECT_DATA_FOLDER')})
           os.umask(0o077)
           with open('.env', 'w') as output:
