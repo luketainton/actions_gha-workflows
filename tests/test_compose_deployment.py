@@ -218,6 +218,19 @@ class DeploymentTests(unittest.TestCase):
                     )
                     self.assertIn("!inputs.dry-run", condition)
 
+    def test_disabled_onepassword_step_has_safe_environment_expression(self):
+        workflow = (ROOT / ".gitea/workflows/docker-compose-deploy.yml").read_text()
+        load_step = workflow.split(
+            '      - name: "[ON RUNNER] Load Compose secrets from 1Password"', 1
+        )[1].split("      - name:", 1)[0]
+        self.assertIn("if: inputs.onepassword-enabled &&", load_step)
+        # A skipped preparation step has no output. Gitea still evaluates env,
+        # so fromJSON must receive an empty object rather than an empty string.
+        self.assertIn(
+            "env: ${{ fromJSON(steps.onepassword.outputs.references || '{}') }}",
+            load_step,
+        )
+
     def test_onepassword_reference_selection_and_token_validation(self):
         env = {
             "ALLVARS": json.dumps({

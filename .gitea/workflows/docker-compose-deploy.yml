@@ -239,7 +239,8 @@ jobs:
         uses: https://github.com/1password/load-secrets-action@v5.0.1
         with:
           export-env: true
-        env: ${{ fromJSON(steps.onepassword.outputs.references) }}
+        # Gitea evaluates env even when the step's if condition is false.
+        env: ${{ fromJSON(steps.onepassword.outputs.references || '{}') }}
 
       - name: "[ON RUNNER] Create Compose environment file"
         shell: bash
