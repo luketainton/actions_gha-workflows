@@ -441,9 +441,11 @@ jobs:
 
             if [[ -n "$SCAN_TAG" ]]; then
               exec qualor scan --tag "$SCAN_TAG"
-            elif [[ -n "$PR_NUMBER" ]]; then
-              exec qualor scan --branch "$SCAN_BRANCH" --mr "$PR_NUMBER" --mr-target "$PR_TARGET"
-            else
-              exec qualor scan --branch "$SCAN_BRANCH"
             fi
+
+            scan_args=(--branch "$SCAN_BRANCH" --coverage "$GITHUB_WORKSPACE/coverage.xml")
+            if [[ -n "$PR_NUMBER" ]]; then
+              scan_args+=(--mr "$PR_NUMBER" --mr-target "$PR_TARGET")
+            fi
+            exec qualor scan "${scan_args[@]}"
             '
