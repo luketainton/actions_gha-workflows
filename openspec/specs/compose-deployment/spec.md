@@ -72,18 +72,22 @@ remove-orphans flags, both defaulting to false.
 
 ### Requirement: Optional 1Password secret loading
 Deployment SHALL offer `onepassword-enabled` defaulting to false. When enabled,
-it SHALL resolve effective `DC_*` references using the 1Password configure and
+it SHALL resolve `DC_*` entries from `REPO_RENOVATE_ONEPASSWORD_REFERENCES` using the 1Password configure and
 load-secrets actions at v5.0.1 before generating .env. Authentication SHALL use
 the inherited secret named by `onepassword-token-secret`, defaulting to
 `ONEPASSWORD_SERVICE_ACCOUNT_TOKEN`; the token SHALL NOT be deployed.
 
 #### Scenario: Optional retrieval enabled
-- **WHEN** loading is enabled and a DC_* variable or secret contains a reference
+- **WHEN** loading is enabled and the JSON mapping contains a DC_* field reference
 - **THEN** the resolved value is written with literal-value escaping to .env before upload, including during dry-run
 
-#### Scenario: Secret precedence
-- **WHEN** a variable contains an op:// reference but a same-name secret holds an ordinary value
-- **THEN** the secret wins before reference selection and its ordinary value is preserved
+#### Scenario: Mapped value precedence
+- **WHEN** a mapped DC_* name also has an ordinary Gitea variable or secret
+- **THEN** its resolved 1Password value wins
+
+#### Scenario: Unmigrated reference
+- **WHEN** loading is enabled and an effective DC_* Gitea value contains a reference absent from the mapping
+- **THEN** deployment fails before uploading files
 
 #### Scenario: Token override
 - **WHEN** a caller selects another inherited token secret by name

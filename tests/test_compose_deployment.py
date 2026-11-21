@@ -232,15 +232,12 @@ class DeploymentTests(unittest.TestCase):
         )
 
     def test_onepassword_reference_selection_and_token_validation(self):
+        setting = "REPO_RENOVATE_ONEPASSWORD_REFERENCES"
         env = {
-            "ALLVARS": json.dumps({
+            setting: json.dumps({
                 "DC_PASSWORD": "op://vault/item/password",
-                "DC_OVERRIDDEN": "op://vault/unused/password",
-                "UNRELATED": "op://vault/ignored/password",
-            }),
-            "ALLSECRETS": json.dumps({
-                "DC_OVERRIDDEN": "literal",
-                "DC_SECRET": "op://vault/secret/password",
+                "DC_NEW_SECRET": "op://vault/extra/password",
+                "GITHUB_COM_TOKEN": "op://vault/ignored/password",
             }),
             "SERVICE_ACCOUNT_TOKEN": "dummy-token",
             "GITHUB_OUTPUT": str(self.out),
@@ -250,12 +247,21 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertEqual(json.loads(outputs(self.out)["references"]), {
             "DC_PASSWORD": "op://vault/item/password",
-            "DC_SECRET": "op://vault/secret/password",
+            "DC_NEW_SECRET": "op://vault/extra/password",
         })
-        env.update(ALLVARS="{}", ALLSECRETS="{}")
+        env[setting] = ""
         result = run_python("references.py", env, self.cwd)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(outputs(self.out)["references"], "{}")
+        self.assertEqual(json.loads(outputs(self.out)["references"]), {})
+
+        for invalid in ("{", "[]", '{"DC_PASSWORD": "literal"}'):
+            with self.subTest(invalid=invalid):
+                env[setting] = invalid
+                result = run_python("references.py", env, self.cwd)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(setting, result.stderr)
+
+        env[setting] = ""
         env["SERVICE_ACCOUNT_TOKEN"] = ""
         result = run_python("references.py", env, self.cwd)
         self.assertNotEqual(result.returncode, 0)
@@ -266,16 +272,18 @@ class DeploymentTests(unittest.TestCase):
         value = "quote'\" slash\\ newline\n$HOME ${missing} $$ unicode café"
         env = {
             "ALLVARS": json.dumps({"DC_PASSWORD": reference, "DC_PLAIN": "literal"}),
-            "ALLSECRETS": "{}",
+            "ALLSECRETS": json.dumps({"DC_PASSWORD": "old-gitea-value"}),
             "ONEPASSWORD_ENABLED": "true",
+            "ONEPASSWORD_REFERENCES": json.dumps({"DC_PASSWORD": reference, "DC_EXTRA": reference}),
             "DC_PASSWORD": value,
+            "DC_EXTRA": "extra-value",
             "DC_PLAIN": "must-not-override",
             "OP_SERVICE_ACCOUNT_TOKEN": "must-not-upload",
             "PROJECT_NAME": "test",
             "PROJECT_FOLDER": "/home/deploy/test",
             "PROJECT_DATA_FOLDER": "/docker/test",
         }
-        for enabled, expected in (("true", value), ("false", reference)):
+        for enabled, expected in (("true", value), ("false", "old-gitea-value")):
             with self.subTest(enabled=enabled):
                 env["ONEPASSWORD_ENABLED"] = enabled
                 result = run_python("dotenv.py", env, self.cwd)
@@ -286,6 +294,7 @@ class DeploymentTests(unittest.TestCase):
                           for key, encoded in (line.split("=", 1) for line in content.splitlines())}
                 self.assertEqual(values["DC_PASSWORD"], expected)
                 self.assertEqual(values["DC_PLAIN"], "literal")
+                self.assertEqual(values.get("DC_EXTRA"), "extra-value" if enabled == "true" else None)
                 self.assertNotIn("OP_SERVICE_ACCOUNT_TOKEN", values)
                 self.assertEqual((self.cwd / ".env").stat().st_mode & 0o777, 0o600)
         env["ONEPASSWORD_ENABLED"] = "true"
@@ -297,6 +306,12 @@ class DeploymentTests(unittest.TestCase):
             result = run_python("dotenv.py", env, self.cwd)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("did not resolve Compose variable: DC_PASSWORD", result.stderr)
+
+        env["ALLSECRETS"] = "{}"
+        env["ONEPASSWORD_REFERENCES"] = "{}"
+        result = run_python("dotenv.py", env, self.cwd)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Move the Compose reference for DC_PASSWORD", result.stderr)
 
     def test_image_pull_precedes_optional_approval_and_deployment(self):
         workflow = (ROOT / ".gitea/workflows/docker-compose-deploy.yml").read_text()

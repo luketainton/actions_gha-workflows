@@ -12,7 +12,7 @@ configuration. The deployment `.env` contains only `DC_*` values and the three
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `onepassword-enabled` (deploy) | `false` | Resolve `op://` references in `DC_*` variables/secrets using 1Password before generating `.env`. |
+| `onepassword-enabled` (deploy) | `false` | Resolve Compose references from `REPO_RENOVATE_ONEPASSWORD_REFERENCES` before generating `.env`. |
 | `onepassword-token-secret` (deploy) | `ONEPASSWORD_SERVICE_ACCOUNT_TOKEN` | Name of the inherited secret holding the service account token. |
 | `project-directory` | empty | Full deployment path; otherwise `ACTIVE_PROJECT_DIR/<repo>` or `/home/<DEPLOY_USERNAME>/<repo>`. |
 | `data-directory` | empty | Full data path; otherwise `ACTIVE_PROJECT_DATA_DIR/<repo>` or `PROJECT_DATA_DIR/<repo>`. |
@@ -81,9 +81,13 @@ the organisation defaults already describe the existing paths.
 
 ## Optional 1Password secrets
 
-Set a caller repository/organisation variable such as
-`DC_DATABASE_PASSWORD` to `op://deployment-vault/database/password`, then enable
-loading in the caller:
+Set the caller's repository Actions variable `REPO_RENOVATE_ONEPASSWORD_REFERENCES` to a JSON map of Compose environment names to 1Password field references.
+
+```json
+{"DC_DATABASE_PASSWORD":"op://deployment-vault/database/password"}
+```
+
+Enable loading in the caller:
 
 ```yaml
 jobs:
@@ -105,9 +109,11 @@ The workflow uses `1password/load-secrets-action/configure@v5.0.1` and
 `1password/load-secrets-action@v5.0.1` from GitHub. These actions require a runner
 that supports Node.js 24. See the
 [1Password action documentation](https://www.1password.dev/ci-cd/github-actions).
-Secrets still override same-name variables before references are selected.
-Only effective `DC_*` values beginning with `op://` are resolved; ordinary values
-are preserved. Loaded values are masked by the action and written to the private
+Compose reads only `DC_*` entries in the mapping. Their resolved values take
+precedence over same-name Gitea variables and secrets. For ordinary values, Gitea
+secrets still override variables. Move existing `op://` references into the map
+before using this workflow version. An unmapped reference stops deployment when
+loading is enabled. Loaded values are masked by the action and written to the private
 `.env` using the existing literal-value escaping. The service account token is
 available to subsequent job steps, but is not included in the deployed `.env`.
 

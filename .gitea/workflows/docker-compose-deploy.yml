@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       onepassword-enabled:
-        description: Resolve op:// references in DC_* variables and secrets before generating .env
+        description: Resolve Compose references from REPO_RENOVATE_ONEPASSWORD_REFERENCES before generating .env
         type: boolean
         default: false
       onepassword-token-secret:
@@ -210,20 +210,29 @@ jobs:
         if: inputs.onepassword-enabled
         shell: bash
         env:
-          ALLVARS: ${{ toJSON(vars) }}
-          ALLSECRETS: ${{ toJSON(secrets) }}
+          REPO_RENOVATE_ONEPASSWORD_REFERENCES: ${{ vars.REPO_RENOVATE_ONEPASSWORD_REFERENCES }}
           SERVICE_ACCOUNT_TOKEN: ${{ secrets[inputs.onepassword-token-secret] }}
         run: |
           python3 - <<'PYCODE'
           import json
           import os
+          import re
 
           if not os.environ['SERVICE_ACCOUNT_TOKEN']:
               raise SystemExit('1Password is enabled but the selected service account token secret is missing')
-          values = {}
-          for source in ('ALLVARS', 'ALLSECRETS'):
-              values.update({key: str(value) for key, value in json.loads(os.environ[source]).items() if key.startswith('DC_')})
-          references = {key: value for key, value in values.items() if value.startswith('op://')}
+          setting = 'REPO_RENOVATE_ONEPASSWORD_REFERENCES'
+          try:
+              mapping = json.loads(os.environ[setting] or '{}')
+          except json.JSONDecodeError:
+              raise SystemExit(f'{setting} must be a JSON object')
+          if not isinstance(mapping, dict):
+              raise SystemExit(f'{setting} must be a JSON object')
+          references = {key: value for key, value in mapping.items() if key.startswith('DC_')}
+          for key, reference in references.items():
+              if not re.fullmatch(r'DC_[A-Za-z0-9_]+', key):
+                  raise SystemExit(f'{setting} contains an invalid Compose environment variable name')
+              if not isinstance(reference, str) or not re.fullmatch(r'op://[^/]+/[^/]+/.+', reference):
+                  raise SystemExit(f'{setting} needs an op:// field reference for {key}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print('references=' + json.dumps(references), file=output)
           PYCODE
@@ -248,6 +257,7 @@ jobs:
           ALLVARS: ${{ toJSON(vars) }}
           ALLSECRETS: ${{ toJSON(secrets) }}
           ONEPASSWORD_ENABLED: ${{ inputs.onepassword-enabled }}
+          ONEPASSWORD_REFERENCES: ${{ steps.onepassword.outputs.references || '{}' }}
           PROJECT_NAME: ${{ steps.project.outputs.project_name }}
           PROJECT_FOLDER: ${{ steps.project.outputs.project_folder }}
           PROJECT_DATA_FOLDER: ${{ steps.project.outputs.data_folder }}
@@ -260,11 +270,14 @@ jobs:
           for source in ('ALLVARS', 'ALLSECRETS'):
               values.update({key: str(value) for key, value in json.loads(os.environ[source]).items() if key.startswith('DC_')})
           if os.environ.get('ONEPASSWORD_ENABLED') == 'true':
+              references = json.loads(os.environ['ONEPASSWORD_REFERENCES'])
               for key, value in values.items():
-                  if value.startswith('op://'):
-                      if key not in os.environ or os.environ[key] == value:
-                          raise SystemExit('1Password did not resolve Compose variable: ' + key)
-                      values[key] = os.environ[key]
+                  if value.startswith('op://') and key not in references:
+                      raise SystemExit('Move the Compose reference for ' + key + ' to REPO_RENOVATE_ONEPASSWORD_REFERENCES')
+              for key, reference in references.items():
+                  if key not in os.environ or os.environ[key] == reference:
+                      raise SystemExit('1Password did not resolve Compose variable: ' + key)
+                  values[key] = os.environ[key]
           values.update({key: os.environ[key] for key in ('PROJECT_NAME', 'PROJECT_FOLDER', 'PROJECT_DATA_FOLDER')})
           os.umask(0o077)
           with open('.env', 'w') as output:
