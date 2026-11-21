@@ -23,6 +23,22 @@ on:
         required: false
         type: boolean
         default: false
+      qualor-enabled:
+        description: Run Qualor code quality and security analysis
+        type: boolean
+        default: false
+      qualor-url:
+        description: Qualor server URL reachable from the runner
+        type: string
+        default: https://qualor.tainton.uk
+      qualor-project-key:
+        description: Qualor project key (defaults to owner/repo)
+        type: string
+        default: ''
+    secrets:
+      QUALOR_TOKEN:
+        description: Project analysis token required when Qualor is enabled
+        required: false
 
 concurrency:
   group: unified-python-ci-${{ github.workflow }}-${{ github.ref }}
@@ -324,3 +340,43 @@ jobs:
       - name: Build Docker image
         if: ${{ inputs.docker-enabled }}
         run: docker build --tag python-ci:local .
+
+      - name: Check out source for Qualor
+        id: qualor-checkout
+        if: >-
+          ${{ inputs.qualor-enabled &&
+              ((github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name == github.repository) ||
+               ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+                startsWith(github.ref, 'refs/heads/'))) }}
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .qualor-scan
+
+      - name: Scan with Qualor
+        if: steps.qualor-checkout.outcome == 'success'
+        uses: docker://qualor/scanner:0.15.1
+        env:
+          QUALOR_URL: ${{ inputs.qualor-url }}
+          QUALOR_TOKEN: ${{ secrets.QUALOR_TOKEN }}
+          QUALOR_PROJECT_KEY: ${{ inputs.qualor-project-key || github.repository }}
+          SCAN_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TARGET: ${{ github.base_ref }}
+        with:
+          entrypoint: /bin/bash
+          args: |-
+            -euc '
+            : "${QUALOR_TOKEN:?Set the QUALOR_TOKEN Actions secret and pass it to this workflow.}"
+            cd "$GITHUB_WORKSPACE/.qualor-scan"
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$PWD"
+
+            if [[ -n "$PR_NUMBER" ]]; then
+              exec qualor scan --branch "$SCAN_BRANCH" --mr "$PR_NUMBER" --mr-target "$PR_TARGET"
+            else
+              exec qualor scan --branch "$SCAN_BRANCH"
+            fi
+            '
