@@ -64,3 +64,18 @@ quality gate fails. Test coverage remains in the regular CI artifact. Run a
 scan on the project's main branch to establish a baseline.
 
 See [Qualor's generic CI documentation](https://qualor.dev/docs/other-ci).
+
+### Qualor token from 1Password
+
+Set `qualor-onepassword-key` to the entry in the caller organisation's
+`ORG_RENOVATE_ONEPASSWORD_REFERENCES` JSON object that holds the project's
+`op://` reference. Pass the organisation's 1Password service account token to
+the reusable workflow. The workflow resolves the selected entry in the CI job.
+
+```yaml
+    with:
+      qualor-enabled: true
+      qualor-onepassword-key: QUALOR_TOKEN
+    secrets:
+      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN }}
+```
