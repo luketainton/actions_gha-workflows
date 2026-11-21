@@ -36,10 +36,11 @@ add Pyrefly to their dev group with `poetry add --group dev pyrefly` or
 
 ## Optional Qualor scan on Gitea
 
-Create the project in [Qualor](https://qualor.tainton.uk) and save its project
-analysis token in the source repository's Actions secrets as `QUALOR_TOKEN`.
-Use the repository's `owner/repo` as the project key, or set
-`qualor-project-key` to match the key you chose in Qualor.
+The workflow reads the `QUALOR_TOKEN` entry in the instance-wide
+`GLOBAL_ONEPASSWORD_REFERENCES` Actions variable. Store an `op://` reference
+to the Qualor analysis token at that key. The Qualor project key defaults to
+`owner/repo`.
+Set `qualor-project-key` if the project uses a custom key.
 
 ```yaml
 jobs:
@@ -48,8 +49,12 @@ jobs:
     with:
       qualor-enabled: true
     secrets:
-      QUALOR_TOKEN: ${{ secrets.QUALOR_TOKEN }}
+      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN }}
 ```
+
+Use a 1Password service account with read access to the referenced item.
+When migrating a caller that passes `QUALOR_TOKEN`, remove that secret from
+the workflow call.
 
 The `qualor-url` input defaults to `https://qualor.tainton.uk`. Override it
 if your runner needs a different address to reach the server without a browser
@@ -64,18 +69,3 @@ quality gate fails. Test coverage remains in the regular CI artifact. Run a
 scan on the project's main branch to establish a baseline.
 
 See [Qualor's generic CI documentation](https://qualor.dev/docs/other-ci).
-
-### Qualor token from 1Password
-
-Set `qualor-onepassword-key` to the entry in the caller organisation's
-`ORG_RENOVATE_ONEPASSWORD_REFERENCES` JSON object that holds the project's
-`op://` reference. Pass the organisation's 1Password service account token to
-the reusable workflow. The workflow resolves the selected entry in the CI job.
-
-```yaml
-    with:
-      qualor-enabled: true
-      qualor-onepassword-key: QUALOR_TOKEN
-    secrets:
-      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN }}
-```

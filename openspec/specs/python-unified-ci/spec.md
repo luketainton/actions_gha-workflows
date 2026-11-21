@@ -25,9 +25,9 @@ Python Unified CI SHALL run Pyrefly when the calling workflow enables the Pyrefl
 The Gitea Unified Python CI workflow SHALL run Qualor as a step in the existing
 CI job when enabled for branch pushes, manual branch runs, and pull requests
 originating in the same repository.
-It SHALL authenticate with a project analysis token passed directly by the caller
-or resolved from a selected key in the caller organisation's
-`ORG_RENOVATE_ONEPASSWORD_REFERENCES`.
+It SHALL authenticate with a project analysis token resolved through 1Password
+from the `QUALOR_TOKEN` entry in the instance-wide
+`GLOBAL_ONEPASSWORD_REFERENCES` variable.
 
 #### Scenario: Qualor is enabled for a branch
 - **WHEN** a caller enables Qualor and runs CI on a branch push or manual branch run
@@ -45,7 +45,7 @@ or resolved from a selected key in the caller organisation's
 - **WHEN** the token is missing, the scanner fails, or the quality gate fails for an enabled scan
 - **THEN** the CI job fails
 
-#### Scenario: The caller selects a 1Password reference
-- **WHEN** the caller selects a key in its organisation's `ORG_RENOVATE_ONEPASSWORD_REFERENCES` variable
-- **THEN** CI resolves that entry through 1Password and supplies the resolved token to Qualor
+#### Scenario: Qualor needs a project token
+- **WHEN** Qualor is enabled for a supported event
+- **THEN** CI looks up `QUALOR_TOKEN` in `GLOBAL_ONEPASSWORD_REFERENCES`, resolves that reference through 1Password, and supplies the token to Qualor
 - **AND** missing or invalid references and failed secret retrieval fail the CI job

@@ -35,14 +35,7 @@ on:
         description: Qualor project key (defaults to owner/repo)
         type: string
         default: ''
-      qualor-onepassword-key:
-        description: Key in ORG_RENOVATE_ONEPASSWORD_REFERENCES for the project analysis token
-        type: string
-        default: ''
     secrets:
-      QUALOR_TOKEN:
-        description: Project analysis token when 1Password is not used
-        required: false
       ONEPASSWORD_SERVICE_ACCOUNT_TOKEN:
         description: Service account token for the Qualor 1Password reference
         required: false
@@ -366,16 +359,15 @@ jobs:
 
       - name: Select Qualor 1Password reference
         id: qualor-reference
-        if: steps.qualor-checkout.outcome == 'success' && inputs.qualor-onepassword-key != ''
+        if: steps.qualor-checkout.outcome == 'success'
         env:
-          REFERENCES: ${{ vars.ORG_RENOVATE_ONEPASSWORD_REFERENCES }}
-          REFERENCE_KEY: ${{ inputs.qualor-onepassword-key }}
+          REFERENCES: ${{ vars.GLOBAL_ONEPASSWORD_REFERENCES }}
         run: |
           python3 - <<'PYCODE'
           import json
           import os
 
-          setting = "ORG_RENOVATE_ONEPASSWORD_REFERENCES"
+          setting = "GLOBAL_ONEPASSWORD_REFERENCES"
           try:
               references = json.loads(os.environ["REFERENCES"] or "{}")
           except json.JSONDecodeError:
@@ -383,7 +375,7 @@ jobs:
           if not isinstance(references, dict):
               raise SystemExit(f"{setting} must be a JSON object")
 
-          key = os.environ["REFERENCE_KEY"]
+          key = "QUALOR_TOKEN"
           reference = references.get(key)
           if (
               not isinstance(reference, str)
@@ -410,15 +402,13 @@ jobs:
         with:
           export-env: true
         env:
-          QUALOR_TOKEN_FROM_1PASSWORD: ${{ steps.qualor-reference.outputs.reference }}
+          QUALOR_TOKEN: ${{ steps.qualor-reference.outputs.reference }}
 
       - name: Scan with Qualor
         if: steps.qualor-checkout.outcome == 'success'
         uses: docker://qualor/scanner:0.16.0
         env:
           QUALOR_URL: ${{ inputs.qualor-url }}
-          QUALOR_TOKEN: ${{ secrets.QUALOR_TOKEN }}
-          QUALOR_ONEPASSWORD_KEY: ${{ inputs.qualor-onepassword-key }}
           QUALOR_PROJECT_KEY: ${{ inputs.qualor-project-key || github.repository }}
           SCAN_BRANCH: ${{ github.head_ref || github.ref_name }}
           SCAN_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
@@ -428,10 +418,7 @@ jobs:
           entrypoint: /bin/bash
           args: |-
             -euc '
-            if [[ -n "$QUALOR_ONEPASSWORD_KEY" ]]; then
-              export QUALOR_TOKEN="${QUALOR_TOKEN_FROM_1PASSWORD:-}"
-            fi
-            : "${QUALOR_TOKEN:?Provide a project analysis token directly or configure the Qualor 1Password reference.}"
+            : "${QUALOR_TOKEN:?The Qualor project token was not loaded from 1Password.}"
             if [[ "$QUALOR_TOKEN" == op://* ]]; then
               echo "Qualor needs a resolved project analysis token." >&2
               exit 1
