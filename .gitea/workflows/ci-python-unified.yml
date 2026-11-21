@@ -413,7 +413,7 @@ jobs:
 
       - name: Scan with Qualor
         if: steps.qualor-checkout.outcome == 'success'
-        uses: docker://qualor/scanner:0.15.1
+        uses: docker://qualor/scanner:0.16.0
         env:
           QUALOR_URL: ${{ inputs.qualor-url }}
           QUALOR_TOKEN: ${{ secrets.QUALOR_TOKEN }}
