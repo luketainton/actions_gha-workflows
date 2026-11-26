@@ -58,8 +58,8 @@ the workflow call.
 
 The `qualor-url` input defaults to `https://qualor.tainton.uk`. Override it
 if your runner needs a different address to reach the server without a browser
-login. The optional scan runs as a container action at the end of the existing
-Python CI job, after its regular checks pass. It uses a fresh checkout so that
+login. The optional scan runs as a separate reusable workflow after the Python CI job
+passes, downloading its coverage artifact. It uses a fresh checkout so that
 CI changes to dependency manifests and lockfiles do not affect analysis. Branch
 pushes, manual branch runs, and same-repository pull requests can run the step.
 Fork pull requests and `pull_request_target` events skip it.
@@ -69,3 +69,24 @@ quality gate fails. Test coverage remains in the regular CI artifact. Run a
 scan on the project's main branch to establish a baseline.
 
 See [Qualor's generic CI documentation](https://qualor.dev/docs/other-ci).
+
+## Standalone Qualor scan
+
+Call the Gitea workflow from a project using any language:
+
+```yaml
+jobs:
+  qualor:
+    uses: actions/gha-workflows/.gitea/workflows/qualor-scan.yml@main
+    secrets:
+      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN }}
+```
+
+The same 1Password reference and event restrictions above apply. The optional
+`qualor-url` and `qualor-project-key` inputs override their defaults. To
+include coverage, upload a report as an Actions artifact in an earlier job,
+set `coverage-artifact` to its name, and use `needs` to wait for that job.
+The report defaults to `coverage.xml` at the artifact root; set
+`coverage-file` to a different path within the artifact if needed. Without
+an artifact, the scan runs without a coverage argument. Tag scans record
+dependency versions and do not use coverage.

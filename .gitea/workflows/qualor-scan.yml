@@ -1,0 +1,137 @@
+name: Qualor scan
+
+on:
+  workflow_call:
+    inputs:
+      qualor-url:
+        description: Qualor server URL reachable from the runner
+        type: string
+        default: https://qualor.tainton.uk
+      qualor-project-key:
+        description: Qualor project key (defaults to owner/repo)
+        type: string
+        default: ''
+      coverage-artifact:
+        description: Optional artifact containing the coverage report
+        type: string
+        default: ''
+      coverage-file:
+        description: Coverage report path within the artifact
+        type: string
+        default: coverage.xml
+    secrets:
+      ONEPASSWORD_SERVICE_ACCOUNT_TOKEN:
+        description: Service account token for the Qualor 1Password reference
+        required: false
+
+jobs:
+  scan:
+    name: Qualor scan
+    if: >-
+      ${{ (github.event_name == 'pull_request' &&
+           github.event.pull_request.head.repo.full_name == github.repository) ||
+          ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+           (startsWith(github.ref, 'refs/heads/') ||
+            startsWith(github.ref, 'refs/tags/'))) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source for Qualor
+        id: qualor-checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: .qualor-scan
+
+      - name: Download coverage artifact
+        if: ${{ inputs.coverage-artifact != '' }}
+        uses: actions/download-artifact@v8.0.2
+        with:
+          name: ${{ inputs.coverage-artifact }}
+          path: .qualor-coverage
+
+      - name: Select Qualor 1Password reference
+        id: qualor-reference
+        if: steps.qualor-checkout.outcome == 'success'
+        env:
+          REFERENCES: ${{ vars.GLOBAL_ONEPASSWORD_REFERENCES }}
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          import os
+
+          setting = "GLOBAL_ONEPASSWORD_REFERENCES"
+          try:
+              references = json.loads(os.environ["REFERENCES"] or "{}")
+          except json.JSONDecodeError:
+              raise SystemExit(f"{setting} must be a JSON object") from None
+          if not isinstance(references, dict):
+              raise SystemExit(f"{setting} must be a JSON object")
+
+          key = "QUALOR_TOKEN"
+          reference = references.get(key)
+          if (
+              not isinstance(reference, str)
+              or not reference.startswith("op://")
+              or reference != reference.strip()
+              or "\r" in reference
+              or "\n" in reference
+          ):
+              raise SystemExit(f"Set a bare op:// reference for {key} in {setting}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"reference={reference}", file=output)
+          PYCODE
+
+      - name: Configure 1Password for Qualor
+        if: steps.qualor-reference.outcome == 'success'
+        uses: https://github.com/1password/load-secrets-action/configure@v5.0.1
+        with:
+          service-account-token: ${{ secrets.ONEPASSWORD_SERVICE_ACCOUNT_TOKEN }}
+
+      - name: Load Qualor project token
+        if: steps.qualor-reference.outcome == 'success'
+        uses: https://github.com/1password/load-secrets-action@v5.0.1
+        with:
+          export-env: true
+        env:
+          QUALOR_TOKEN: ${{ steps.qualor-reference.outputs.reference }}
+
+      - name: Scan with Qualor
+        if: steps.qualor-checkout.outcome == 'success'
+        uses: docker://qualor/scanner:0.17.0
+        env:
+          QUALOR_URL: ${{ inputs.qualor-url }}
+          QUALOR_PROJECT_KEY: ${{ inputs.qualor-project-key || github.repository }}
+          SCAN_BRANCH: ${{ github.head_ref || github.ref_name }}
+          SCAN_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TARGET: ${{ github.base_ref }}
+          COVERAGE_ARTIFACT: ${{ inputs.coverage-artifact }}
+          COVERAGE_FILE: ${{ inputs.coverage-file }}
+        with:
+          entrypoint: /bin/bash
+          args: |-
+            -euc '
+            : "${QUALOR_TOKEN:?The Qualor project token was not loaded from 1Password.}"
+            if [[ "$QUALOR_TOKEN" == op://* ]]; then
+              echo "Qualor needs a resolved project analysis token." >&2
+              exit 1
+            fi
+            cd "$GITHUB_WORKSPACE/.qualor-scan"
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$PWD"
+
+            if [[ -n "$SCAN_TAG" ]]; then
+              exec qualor scan --tag "$SCAN_TAG"
+            fi
+
+            scan_args=(--branch "$SCAN_BRANCH")
+            if [[ -n "$COVERAGE_ARTIFACT" ]]; then
+              scan_args+=(--coverage "$GITHUB_WORKSPACE/.qualor-coverage/$COVERAGE_FILE")
+            fi
+            if [[ -n "$PR_NUMBER" ]]; then
+              scan_args+=(--mr "$PR_NUMBER" --mr-target "$PR_TARGET")
+            fi
+            exec qualor scan "${scan_args[@]}"
+            '
